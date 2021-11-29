@@ -1,5 +1,9 @@
+import json
+import os
+import urllib
 import uuid
 
+import requests
 from flask import request, jsonify, abort
 from flask_restful import Resource, reqparse, current_app
 from flask_principal import (
@@ -25,8 +29,8 @@ from zou.app.services.exception import (
     WrongPasswordException,
     WrongUserException,
     UnactiveUserException,
+    InvalidGrantException
 )
-
 
 from flask_jwt_extended import (
     jwt_required,
@@ -71,7 +75,7 @@ def logout():
 
 
 def wrong_auth_handler(identity_user=None):
-    if request.path not in ["/auth/login", "/auth/logout"]:
+    if request.path not in ["/auth/login", "/auth/logout", "/auth/sso2/login"]:
         abort(401)
     else:
         return identity_user
@@ -79,7 +83,6 @@ def wrong_auth_handler(identity_user=None):
 
 @identity_loaded.connect_via(app)
 def on_identity_loaded(sender, identity):
-
     if identity.id is not None:
         from zou.app.services import persons_service
 
@@ -223,7 +226,7 @@ class LoginResource(Resource):
                         "user": user,
                         "organisation": organisation,
                         "ldap": app.config["AUTH_STRATEGY"]
-                        == "auth_remote_ldap",
+                                == "auth_remote_ldap",
                         "login": True,
                     }
                 )
@@ -297,6 +300,167 @@ class LoginResource(Resource):
         args = parser.parse_args()
 
         return (args["email"], args["password"])
+
+
+class Sso2LoginResource(Resource):
+    """
+       Log in user by creating and registering auth tokens. Login is based
+       on email and password. If no user match given email and a destkop ID,
+       it looks in matching the desktop ID with the one stored in database. It is
+       useful for clients that run on desktop tools and that don't know user email.
+       """
+
+    def post(self):
+        (code, state) = self.get_arguments()
+        try:
+
+            clientId = os.getenv('client_id', 'CgyunClientTestId')
+            clientSecret = os.getenv('client_secret', 'cgyun_secret')
+            redirectUri = os.getenv('redirect_uri', 'http://localhost:8080/login')
+            cgUri = os.getenv('cg_uri', 'http://58.59.17.58:11000')
+
+            requestJSONdata = {
+                "code": code,
+                "grant_type": "authorization_code",
+                "client_id": clientId,
+                "redirect_uri": redirectUri,
+                "client_secret": clientSecret,
+                "scope": "read  "
+            }
+
+            # 客户端获取服务端的响应报文数据
+            result = self.post_requests(cgUri + "/cgproxy/oauth/token", requestJSONdata)
+
+            if 'error' in result:
+                raise InvalidGrantException(result['error_description'])
+
+            auth_service.register_tokens(app, result['access_token'], result['access_token'])
+
+            # 判断是否有权限进入团队
+            auth_res = self.post_requests(cgUri + "/cgproxy/system/group/getByClientId?client_id=" + clientId, {},
+                                          head={
+                                              "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                                              'Connection': 'close',
+                                              "Authorization": "Bearer %s" % result['access_token']}
+                                          )
+            if auth_res['data'] == '' or auth_res['data']['roleLabel'] == '':
+                raise InvalidGrantException("user has no permission for team")
+
+            try:
+                user = persons_service.get_person_by_email(auth_res['data']['userName'])
+            except PersonNotFoundException:
+                persons_service.create_person(auth_res['data']['userName'], auth.encrypt_password("default"),
+                                              auth_res['data']['nickName'],
+                                              auth_res['data']['nickName'], auth_res['data']['phonenumber'],
+                                              auth_res['data']['roleLabel'].lower(), "")
+                user = persons_service.get_person_by_email(auth_res['data']['userName'])
+
+            ident = Identity(user['id'])
+
+            identity_changed.send(
+                current_app._get_current_object(), identity=ident
+            )
+
+            ip_address = request.environ.get(
+                "HTTP_X_REAL_IP", request.remote_addr
+            )
+
+            if is_from_browser(request.user_agent):
+                organisation = persons_service.get_organisation()
+                response = jsonify(
+                    {
+                        "user": user,
+                        "organisation": organisation,
+                        "ldap": app.config["AUTH_STRATEGY"]
+                                == "auth_remote_ldap",
+                        "login": True,
+                    }
+                )
+                set_access_cookies(response, result['access_token'])
+                set_refresh_cookies(response, result['access_token'])
+                # events_service.create_login_log(user["id"], ip_address, "web")
+
+            else:
+                # events_service.create_login_log(
+                #     user["id"], ip_address, "script"
+                # )
+                response = {
+                    "login": True,
+                    "user": user,
+                    "ldap": app.config["AUTH_STRATEGY"] == "auth_remote_ldap",
+                    "access_token": result['access_token'],
+                    "refresh_token": result['access_token'],
+                }
+
+            return response
+        except PersonNotFoundException:
+            current_app.logger.info("User is not registered.")
+            return {"login": False}, 400
+        except WrongUserException:
+            current_app.logger.info("User is not registered.")
+            return {"login": False}, 400
+        except WrongPasswordException:
+            current_app.logger.info("User gave a wrong password.")
+            return {"login": False}, 400
+        except NoAuthStrategyConfigured:
+            current_app.logger.info(
+                "Authentication strategy is not properly configured."
+            )
+            return {"login": False}, 400
+        except TimeoutError:
+            current_app.logger.info("Timeout occurs while logging in.")
+            return {"login": False}, 400
+        except UnactiveUserException:
+            return (
+                {
+                    "error": True,
+                    "login": False,
+                    "message": "User is unactive, he cannot log in.",
+                },
+                400,
+            )
+        except OperationalError as exception:
+            current_app.logger.error(exception, exc_info=1)
+            return (
+                {
+                    "error": True,
+                    "login": False,
+                    "message": "Database doesn't seem reachable.",
+                },
+                500,
+            )
+        except Exception as exception:
+            current_app.logger.error(exception, exc_info=1)
+            if hasattr(exception, "message"):
+                message = exception.message
+            else:
+                message = str(exception)
+            return {"error": True, "login": False, "message": message}, 500
+
+    def get_arguments(self):
+        parser = reqparse.RequestParser()
+        parser.add_argument(
+            "code", required=True
+        )
+        parser.add_argument("state", default="default")
+        args = parser.parse_args()
+
+        return (args["code"], args["state"])
+
+    def post_requests(self, request_url, request_json_data, head={
+        "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+        'Connection': 'close'}):
+        request_json_data = urllib.parse.urlencode(request_json_data)
+        request_data = request_json_data.encode("utf-8")
+
+        # 客户端发送请求报文到服务端
+        r = requests.post(request_url, data=request_data, headers=head)
+
+        # 客户端获取服务端的响应报文数据
+        response_data = r.text
+
+        # 返回请求响应报文
+        return json.loads(response_data)
 
 
 class RefreshTokenResource(Resource):
@@ -433,6 +597,24 @@ class ChangePasswordResource(Resource):
         args = parser.parse_args()
 
         return (args["old_password"], args["password"], args["password_2"])
+
+
+class RegisterTokensResource(Resource, ArgsMixin):
+    """
+    Register auth tokens.
+    """
+
+    def post(self):
+        try:
+            args = self.get_arguments()
+            auth_service.register_tokens(app, args["token"])
+        except KeyError:
+            return {"Access token not found."}, 500
+
+        return {"register_tokens": True}
+
+    def get_arguments(self):
+        return self.get_args([("token", "", True)])
 
 
 class ResetPasswordResource(Resource, ArgsMixin):

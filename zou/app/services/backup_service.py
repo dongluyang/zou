@@ -2,7 +2,7 @@ import datetime
 import gzip
 import os
 
-from sh import pg_dump
+# from sh import pg_dump
 
 from zou.app.models.organisation import Organisation
 from zou.app.models.person import Person
@@ -33,18 +33,18 @@ def generate_db_backup(host, port, user, password, database):
     """
     now = datetime.datetime.now().strftime("%Y-%m-%d")
     filename = "%s-zou-db-backup.sql.gz" % now
-    with gzip.open(filename, "wb") as archive:
-        pg_dump(
-            "-h",
-            host,
-            "-p",
-            port,
-            "-U",
-            user,
-            database,
-            _out=archive,
-            _env={"PGPASSWORD": password},
-        )
+    # with gzip.open(filename, "wb") as archive:
+    #     pg_dump(
+    #         "-h",
+    #         host,
+    #         "-p",
+    #         port,
+    #         "-U",
+    #         user,
+    #         database,
+    #         _out=archive,
+    #         _env={"PGPASSWORD": password},
+    #     )
     return filename
 
 

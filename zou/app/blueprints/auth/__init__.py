@@ -9,10 +9,13 @@ from .resources import (
     RegistrationResource,
     RefreshTokenResource,
     ResetPasswordResource,
+    Sso2LoginResource, RegisterTokensResource
 )
 
 routes = [
     ("/auth/login", LoginResource),
+    ("/auth/sso2/login",Sso2LoginResource),
+    ("/auth/register-tokens",RegisterTokensResource),
     ("/auth/logout", LogoutResource),
     ("/auth/authenticated", AuthenticatedResource),
     ("/auth/register", RegistrationResource),

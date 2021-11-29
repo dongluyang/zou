@@ -153,6 +153,10 @@ class UnactiveUserException(Exception):
     pass
 
 
+class InvalidGrantException(Exception):
+    pass
+
+
 class WrongDateFormatException(Exception):
     pass
 

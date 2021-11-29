@@ -34,8 +34,8 @@ JWT_COOKIE_SAMESITE = "Lax"
 
 DATABASE = {
     "drivername": os.getenv("DB_DRIVER", "postgresql"),
-    "host": os.getenv("DB_HOST", "localhost"),
-    "port": os.getenv("DB_PORT", "5432"),
+    "host": os.getenv("DB_HOST", "39.107.38.205"),
+    "port": os.getenv("DB_PORT", "25432"),
     "username": os.getenv("DB_USERNAME", "postgres"),
     "password": os.getenv("DB_PASSWORD", "mysecretpassword"),
     "database": os.getenv("DB_DATABASE", "zoudb"),
