@@ -222,6 +222,7 @@ def get_shots_and_tasks(criterions={}):
             Sequence.name,
             Sequence.id,
             Task.id,
+            Task.name,
             Task.task_type_id,
             Task.task_status_id,
             Task.priority,
@@ -260,6 +261,7 @@ def get_shots_and_tasks(criterions={}):
         sequence_name,
         sequence_id,
         task_id,
+        task_name,
         task_type_id,
         task_status_id,
         task_priority,
@@ -314,6 +316,7 @@ def get_shots_and_tasks(criterions={}):
                 task_dict = fields.serialize_dict(
                     {
                         "id": task_id,
+                        "task_name":task_name,
                         "entity_id": shot_id,
                         "task_status_id": task_status_id,
                         "task_type_id": task_type_id,

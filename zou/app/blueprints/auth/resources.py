@@ -378,12 +378,12 @@ class Sso2LoginResource(Resource):
                 )
                 set_access_cookies(response, result['access_token'])
                 set_refresh_cookies(response, result['access_token'])
-                # events_service.create_login_log(user["id"], ip_address, "web")
+                events_service.create_login_log(user["id"], ip_address, "web")
 
             else:
-                # events_service.create_login_log(
-                #     user["id"], ip_address, "script"
-                # )
+                events_service.create_login_log(
+                    user["id"], ip_address, "script"
+                )
                 response = {
                     "login": True,
                     "user": user,
