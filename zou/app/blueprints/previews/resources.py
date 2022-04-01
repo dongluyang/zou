@@ -31,7 +31,6 @@ from zou.app.utils import (
     thumbnail as thumbnail_utils,
 )
 
-
 ALLOWED_PICTURE_EXTENSION = [".png", ".jpg", ".jpeg", ".PNG", ".JPG", ".JPEG"]
 ALLOWED_MOVIE_EXTENSION = [
     ".avi",
@@ -100,10 +99,10 @@ ALLOWED_FILE_EXTENSION = [
 
 
 def send_standard_file(
-    preview_file_id,
-    extension,
-    mimetype="application/octet-stream",
-    as_attachment=False,
+        preview_file_id,
+        extension,
+        mimetype="application/octet-stream",
+        as_attachment=False,
 ):
     return send_storage_file(
         file_store.get_local_file_path,
@@ -144,13 +143,13 @@ def send_picture_file(prefix, preview_file_id, as_attachment=False):
 
 
 def send_storage_file(
-    get_local_path,
-    open_file,
-    prefix,
-    preview_file_id,
-    extension,
-    mimetype="application/octet-stream",
-    as_attachment=False,
+        get_local_path,
+        open_file,
+        prefix,
+        preview_file_id,
+        extension,
+        mimetype="application/octet-stream",
+        as_attachment=False,
 ):
     """
     Send file from storage. If it's not a local storage, cache the file in
@@ -265,10 +264,10 @@ class CreatePreviewFilePictureResource(Resource, ArgsMixin):
         )
 
     def save_movie_preview(
-        self,
-        preview_file_id,
-        uploaded_file,
-        normalize=True
+            self,
+            preview_file_id,
+            uploaded_file,
+            normalize=True
     ):
         """
         Get uploaded movie, normalize it then build thumbnails then save
@@ -279,6 +278,7 @@ class CreatePreviewFilePictureResource(Resource, ArgsMixin):
         uploaded_movie_path = movie.save_file(
             tmp_folder, preview_file_id, uploaded_file
         )
+        file_store.add_file("previews", preview_file_id, uploaded_movie_path)
         if normalize and config.ENABLE_JOB_QUEUE and not no_job:
             queue_store.job_queue.enqueue(
                 preview_files_service.prepare_and_store_movie,
@@ -422,7 +422,15 @@ class PreviewFileMovieDownloadResource(PreviewFileMovieResource):
             abort(403)
 
         try:
-            return send_movie_file(instance_id, as_attachment=True)
+            file_path = fs.get_file_path_and_file(
+                config, file_store.get_local_file_path, file_store.open_file, "previews", instance_id, "mp4"
+            )
+            current_app.logger.info(file_path)
+            if os.path.exists(file_path):
+                current_app.logger.info("file is regular!!")
+                return send_standard_file(instance_id, "mp4", as_attachment=True)
+            else:
+                return send_movie_file(instance_id, as_attachment=True)
         except FileNotFound:
             current_app.logger.error(
                 "Movie file was not found for: %s" % instance_id
@@ -686,7 +694,7 @@ class CreatePersonThumbnailResource(BaseCreatePictureResource):
 
     def check_permissions(self, instance_id):
         is_current_user = (
-            persons_service.get_current_user()["id"] != instance_id
+                persons_service.get_current_user()["id"] != instance_id
         )
         if is_current_user and not permissions.has_manager_permissions():
             raise permissions.PermissionDenied
